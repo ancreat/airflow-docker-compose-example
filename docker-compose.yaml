@@ -1,0 +1,51 @@
+services:
+  data_warehouse:
+    image: postgres:17.4
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: "data_warehouse"
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+
+  airflow_db:
+    image: postgres:17.4
+    environment:
+      POSTGRES_DB: "airflow_db"
+      POSTGRES_USER: "${POSTGRES_USER}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+
+  airflow:
+    image: apache/airflow:3.0.0-python3.12
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username "${AIRFLOW_USERNAME}" \
+          --password "${AIRFLOW_PASSWORD}" \
+          --firstname admin \
+          --lastname admin \
+          --role Admin \
+          --email admin
+        airflow scheduler &
+        airflow dag-processor &
+        airflow triggerer &
+        airflow api-server --port 8080
+    ports:
+      - "8080:8080"
+    restart: always
+    depends_on:
+      - data_warehouse
+      - airflow_db
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@airflow_db/airflow_db"
+      AIRFLOW_CONN_DATA_WAREHOUSE_CONNECTION: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@data_warehouse:5432/data_warehouse"
+      AIRFLOW__CORE__EXECUTOR: "LocalExecutor"
+      AIRFLOW__CORE__AUTH_MANAGER: "airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    volumes:
+      - ./airflow_dags:/opt/airflow/dags
+      - ./data:/opt/airflow/import/data
